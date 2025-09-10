@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Random + Room Code Chat</title>
+  <style>
+    body { font-family: sans-serif; background: #f0f0f0; }
+    #chat { display: none; margin-top: 1em; }
+    #messages { border: 1px solid #ccc; height: 300px; overflow-y: auto; padding: .5em; background: #fff; }
+    #inputBox { margin-top: .5em; }
+  </style>
+</head>
+<body>
+  <h2>Chat Demo</h2>
+  <div id="login">
+    <button id="loginBtn">Sign In (Anonymous)</button>
+  </div>
+  <div id="roomSelect" style="display:none;">
+    <button id="randomBtn">Random Chat</button>
+    <input id="roomCode" placeholder="Room Code">
+    <button id="joinRoomBtn">Join Room</button>
+  </div>
+  <div id="chat">
+    <h3 id="roomTitle"></h3>
+    <div id="messages"></div>
+    <div id="inputBox">
+      <input id="msgInput" placeholder="Type a message...">
+      <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
+    import { getDatabase, ref, push, set, onChildAdded, update, get, child } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
+
+    // TODO: Replace with your Firebase config
+    const firebaseConfig = {
+      apiKey: "YOUR-API-KEY",
+      authDomain: "YOUR-PROJECT.firebaseapp.com",
+      databaseURL: "https://YOUR-PROJECT.firebaseio.com",
+      projectId: "YOUR-PROJECT",
+      storageBucket: "YOUR-PROJECT.appspot.com",
+      messagingSenderId: "YOUR-SENDER-ID",
+      appId: "YOUR-APP-ID"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    const loginBtn = document.getElementById("loginBtn");
+    const randomBtn = document.getElementById("randomBtn");
+    const joinRoomBtn = document.getElementById("joinRoomBtn");
+    const roomCodeInput = document.getElementById("roomCode");
+    const messagesDiv = document.getElementById("messages");
+    const msgInput = document.getElementById("msgInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const roomTitle = document.getElementById("roomTitle");
+
+    let currentRoom = null;
+    let userId = null;
+
+    // Sign in
+    loginBtn.onclick = () => {
+      signInAnonymously(auth);
+    };
+
+    onAuthStateChanged(auth, user => {
+      if (user) {
+        userId = user.uid;
+        document.getElementById("login").style.display = "none";
+        document.getElementById("roomSelect").style.display = "block";
+      }
+    });
+
+    // Join group chat by code
+    joinRoomBtn.onclick = () => {
+      const code = roomCodeInput.value.trim();
+      if (code) joinRoom("room_" + code);
+    };
+
+    // Random matchmaking
+    randomBtn.onclick = async () => {
+      const queueRef = ref(db, "queue");
+      const snap = await get(queueRef);
+      const queue = snap.val();
+      let partner = null;
+      if (queue) {
+        for (let key in queue) {
+          if (queue[key] !== userId) {
+            partner = queue[key];
+            await update(queueRef, { [key]: null });
+            break;
+          }
+        }
+      }
+      if (partner) {
+        const roomId = "match_" + [userId, partner].sort().join("_");
+        joinRoom(roomId);
+      } else {
+        const newRef = push(queueRef);
+        set(newRef, userId);
+        alert("Waiting for a partner...");
+      }
+    };
+
+    // Join room logic
+    function joinRoom(roomId) {
+      currentRoom = roomId;
+      roomTitle.textContent = "Room: " + roomId;
+      document.getElementById("roomSelect").style.display = "none";
+      document.getElementById("chat").style.display = "block";
+      messagesDiv.innerHTML = "";
+
+      const msgRef = ref(db, "rooms/" + roomId);
+      onChildAdded(msgRef, (snap) => {
+        const msg = snap.val();
+        const div = document.createElement("div");
+        div.textContent = (msg.sender === userId ? "You" : "Stranger") + ": " + msg.text;
+        messagesDiv.appendChild(div);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      });
+
+      sendBtn.onclick = () => {
+        const text = msgInput.value.trim();
+        if (!text) return;
+        push(msgRef, { sender: userId, text, timestamp: Date.now() });
+        msgInput.value = "";
+      };
+    }
+  </script>
+</body>
+</html>
